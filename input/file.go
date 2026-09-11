@@ -60,7 +60,6 @@ func (f *File) Read() ([]byte, error) {
 		}
 	}
 
-	return nil, ErrorDone
 }
 
 func (f *File) End() {
