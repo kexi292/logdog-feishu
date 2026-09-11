@@ -1,0 +1,7 @@
+/logdog-feishu
+/config.yaml
+/dist/
+*.state
+*.state.lock
+.logdog-config-*
+.logdog-state-*

@@ -1,59 +1,74 @@
-# LogAlert
+# Logdog Feishu
 
-重量只有1克的轻量级日志监控告警程序
+常驻监听多个项目和服务的日志，发现关键字后向一个飞书群自定义机器人发送带来源的上下文报告，用于减少每日人工巡检。
 
-## 功能
+## 配置与运行
 
-* 日志文件配置支持glob
-* 监控关键字配置
-* 告警CURL配置
+开发机上启动 TUI：
 
-## 运行
-
-```yaml
-go run main.go -c config_demo.yaml
+```bash
+go run .
 ```
 
-## 配置说明
+填写群机器人 Webhook、可选签名密钥、项目、服务、路径和包含/排除关键字。用方向键或 Tab 移动到界面中的 `Save configuration`、`Add service` 等选项，回车执行。Webhook 与签名密钥默认遮蔽；配置保存为 `0600`，修改后重启监听生效。
 
-使用yaml格式
+后台监听与指定配置位置：
 
-```yaml
-inputs:
-    # 项目名称，没啥用
-  - name: project-000
-    # paths扫描频率(秒)
-    scan_frequency: 10
-    # 监控的文件，支持glob
-    paths:
-      - /data/log/*.log
-      - /data/log1/log1.log
-    # 监控内容，包含内容即报警
-    include_lines: ['error', 'warning']
-    # 排除监控内容，包含不告警
-    exclude_lines:
-      - "success"
-      - "warning"
-    # 另一个项目配置
-  - name: project-001
-    paths:
-      - /var/log/*.log
-    include_lines: ['success']
-output.http:
-  method: POST
-  # 这里是企微机器人的地址
-  url: https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=*
-  # Header头
-  headers:
-    - Content-Type application/json;charset=UTF-8
-  # 留着扩展用
-  format: json
-  # 请求内容(%{content}会替换为日志告警行的内容)
-  body: >
-    {
-      "msgtype": "markdown",
-      "markdown": {
-        "content": "DIY报警内容\n<font color=\"warning\">%{content}</font>"
-      }
-    }
+```bash
+go run . configure -c config.yaml
+go run . run -c config.yaml
 ```
+
+TUI 是按需运行的配置工具，后台监听不需要终端。当前 TUI 的路径和关键字用英文逗号分隔；路径本身含逗号时需要编辑配置文件。退出未保存确认、删除服务和报告预览仍待完善。
+
+## 路径与匹配
+
+- 目录：监听当前目录中的 `*.log`，不递归。
+- 文件或 glob：遵循 Go `filepath.Glob` 语义，不支持 `**` 递归。
+- 匹配区分大小写；包含关键字命中才触发，排除关键字优先。可按项目设置 `ERROR`、`FATAL`、`panic:`、`Exception`、`Traceback` 等关键字。
+- 同一服务的重叠规则只打开同一路径一次，报告显示最先匹配的规则；不同项目/服务独立维护进度。
+- `scan_frequency` 控制发现新文件的间隔，单位秒，`0` 使用默认 10 秒；已打开的文件每轮检查，轮询间隔 250 毫秒。
+
+可参考 [config_demo.yaml](config_demo.yaml)。配置路径中的相对日志路径相对进程工作目录，建议使用绝对路径。手工准备的配置运行前执行 `chmod 600 config.yaml`。
+
+## 上下文报告
+
+报告包括项目、服务、主机、原监听规则、实际目录、文件绝对路径、文件身份、字节范围、触发时间、关键字和原文。
+
+命中时保留前 5 行，继续收集后续多行堆栈；识别到下一条以常见时间戳或日志级别开头的日志后，再保留 5 行。相邻命中会合并并列出关键字。日志片段只来自同一文件，不能据此认定属于同一个请求。
+
+日志停写 2 秒或采集持续 10 秒时发送已收集内容，并标注完整性未知或未完整。单行保留前 16 KiB，超出内容注明原日志位置；累计达到 256 KiB（最多超出一行）或 1,000 行结束该次采集。没有换行的片段在停写后处理，后续追加可能成为新的片段。关键字仅在保留的行内容中匹配。
+
+这是一组有限的事件边界规则，不能保证识别所有日志格式；尤其是触发词出现在长堆栈末尾时，前置窗口可能不包含完整事件开头。此类日志应把事件起始词（如 `Traceback`）加入包含关键字。
+
+长报告按统一编号和 `Part: n/m` 分段发送；每段都带来源，按 JSON 编码后的大小控制在 19 KiB 内。发送器使用内置 POST/文本消息，不需要手写 JSON 模板。
+
+## 续读、失败和恢复
+
+默认状态文件为配置路径加 `.state`，旁边的 `.lock` 防止两个进程同时使用同一份状态。可选 `state_file` 指定其他位置，相对路径相对配置目录；目录需预先存在且进程可写。
+
+启动时已有检查点就续读，首次启动时已存在的文件从末尾开始，运行期间新发现或替换的文件从头读取。检测到文件身份改变或大小回退时处理轮转/截断；旧文件读到当前末尾后关闭。不要删除状态文件来解决网络错误，否则会丢失恢复位置。
+
+游标定期与退出时原子保存。完成采集的报告先写入同一状态文件，再发送；成功后清除待发内容并保存确认位置。发送失败会返回错误退出，下次启动先重发待发报告，即使原文件已删除也可恢复这份报告。状态文件可能暂存日志原文，应与配置一样保留 `0600` 权限；不活跃且没有待发报告的游标保留 7 天。
+
+HTTP 开启正常 TLS 校验，单次超时 10 秒；网络故障、HTTP 429/5xx 和飞书限流业务码最多尝试 3 次。所有服务和重试共享发送间隔（至少 650 毫秒）。HTTP 200 仍需检查飞书业务 `code`；拒绝重定向，错误信息不输出 Webhook、签名密钥或服务端响应原文。
+
+发送是同步的，长报告或网络故障会延后其他文件扫描，内存不会靠无限排队增长。异常退出或请求结果不确定时仍可能重发，不能保证严格不重不漏。进程停机期间已被删除的未采集日志、两次检查之间完成的截断并快速增长，以及关闭旧文件后继续写入旧句柄的内容，无法保证补回。
+
+## 构建与验证
+
+```bash
+go test ./...
+go vet ./...
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o logdog-feishu .
+```
+
+ARM64 服务器把 `GOARCH` 改成 `arm64`。服务器只需上传对应 Linux 二进制，通过 `./logdog-feishu configure` 配置、`./logdog-feishu run` 监听，无需安装 Go。需要可用的系统 CA 信任库和 HTTPS 出站网络；精简发行版可安装 `ca-certificates`，不要关闭 TLS 校验。
+
+完整安装包使用 `bash script/build-linux.sh` 构建，包含二进制、部署说明和第三方许可证。解压后在目录内运行 `./logdog-feishu configure` 和 `./logdog-feishu run`，配置与状态默认保存在同一目录。可选的 systemd 服务也在本目录生成，只向系统注册链接。步骤见 [Linux 原地部署](deploy/DEPLOY.md)。
+
+自动测试只使用临时日志和本地 HTTPS 测试服务。实际 Linux 长期运行、RSS 实测、systemd 运行和真实飞书群验收尚未完成，后续事项见 [TODO.md](TODO.md)。
+
+## 许可证状态
+
+本项目基于 [zhy1991/logdog-feishu](https://github.com/zhy1991/logdog-feishu)。目前尚未确认上游代码的开源许可或再授权，因此未为整个派生项目添加许可证；公开可见或可以 Fork 不等于获得任意再授权。第三方依赖按各自许可证使用。

@@ -1,49 +1,44 @@
 package app
 
 import (
-	"github.com/zhjx922/alert/input"
-	"github.com/zhjx922/alert/publisher"
-	"gopkg.in/yaml.v3"
-	"io/ioutil"
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+
+	"github.com/kexi292/logdog-feishu/input"
+	"github.com/kexi292/logdog-feishu/publisher"
 )
 
-type Alert struct {
-	Config *input.Config
-	keeper *input.Keeper
-}
-
-func InitConfig(filename string) (*input.Config, error) {
-	content, err := ioutil.ReadFile(filename)
+func Run(ctx context.Context, configFile string) error {
+	c, err := input.Load(configFile)
 	if err != nil {
-		return nil, err
+		return err
 	}
-
-	config := &input.Config{}
-	err = yaml.Unmarshal(content, config)
+	if err = c.Validate(); err != nil {
+		return err
+	}
+	state := c.StateFile
+	if state == "" {
+		state = configFile + ".state"
+	} else if !filepath.IsAbs(state) {
+		state = filepath.Join(filepath.Dir(configFile), state)
+	}
+	configPath, err := filepath.Abs(configFile)
 	if err != nil {
-		return nil, err
+		return err
 	}
-
-	return config, nil
-}
-
-func NewAlert(configFile string) *Alert {
-	c, err := InitConfig(configFile)
-
+	statePath, err := filepath.Abs(state)
 	if err != nil {
-		panic(err)
+		return err
 	}
-
-	return &Alert{Config: c}
-}
-
-func (a *Alert) Run() error {
-	p := publisher.NewPublisher(a.Config.OutputHttp)
-	go p.Monitor()
-
-	k := input.NewKeeper()
-	k.SetPublisher(p)
-	k.Run(a.Config)
-
-	return nil
+	configInfo, err := os.Stat(configPath)
+	if err != nil {
+		return err
+	}
+	stateInfo, stateErr := os.Stat(statePath)
+	if configPath == statePath || stateErr == nil && os.SameFile(configInfo, stateInfo) {
+		return fmt.Errorf("state_file must not overwrite the configuration")
+	}
+	return input.Run(ctx, c, statePath, publisher.NewPublisher(c.OutputHttp).Send)
 }
