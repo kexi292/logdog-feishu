@@ -2,7 +2,6 @@
 Description=Logdog Feishu log alerts
 Wants=network-online.target
 After=network-online.target
-StartLimitIntervalSec=0
 
 [Service]
 Type=simple
