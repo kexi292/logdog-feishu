@@ -1,0 +1,20 @@
+[Unit]
+Description=Logdog Feishu log alerts
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=logdog
+Group=logdog
+WorkingDirectory=/var/lib/logdog
+ExecStart=/opt/logdog/logdog-feishu run -c /var/lib/logdog/config.yaml
+Restart=on-failure
+RestartSec=15s
+TimeoutStopSec=45s
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
