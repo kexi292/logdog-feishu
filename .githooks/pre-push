@@ -1,0 +1,25 @@
+#!/bin/sh
+
+# Prevent accidental pushes to the upstream repository or protected branches.
+remote_url="$2"
+
+case "$remote_url" in
+  *github.com/zhy1991/logdog-feishu.git|*github.com/zhy1991/logdog-feishu|*github.com:zhy1991/logdog-feishu.git|*github.com:zhy1991/logdog-feishu)
+    echo "拒绝推送：这是原始上游仓库，请推送到自己的 fork。" >&2
+    exit 1
+    ;;
+esac
+
+if [ "${ALLOW_DIRECT_PUSH:-}" != "1" ]; then
+  while read -r local_ref local_sha remote_ref remote_sha; do
+    case "$remote_ref" in
+      refs/heads/main|refs/heads/master)
+        echo "拒绝直接推送到 $remote_ref，请从功能分支创建 Pull Request。" >&2
+        echo "如确需放行，请使用 ALLOW_DIRECT_PUSH=1 git push。" >&2
+        exit 1
+        ;;
+    esac
+  done
+fi
+
+exit 0
