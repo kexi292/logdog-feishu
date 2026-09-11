@@ -10,6 +10,10 @@ def check(archive):
     assert hashlib.sha256(archive.read_bytes()).hexdigest() == expected, "checksum mismatch"
     with tarfile.open(archive) as contents:
         for entry in contents:
+            relative = Path(entry.name).parts[1:]
+            assert relative, f"unexpected archive root: {entry.name}"
+            allowed = {"logdog-feishu", "DEPLOY.md", "README.md", "SOURCE.txt", "licenses"}
+            assert relative[0] in allowed, f"unexpected packaged file: {entry.name}"
             assert not entry.pax_headers, f"extended tar headers: {entry.name}"
             assert entry.uid == entry.gid == 0, f"host ownership: {entry.name}"
             assert entry.uname in ("", "root") and entry.gname in ("", "root"), entry.name

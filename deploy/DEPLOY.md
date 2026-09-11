@@ -1,88 +1,112 @@
-# Linux 安装与验收
+# Linux 原地部署
 
-适用于有 systemd 的 Linux 服务器，需要 sudo 权限。执行命令前先确认系统和 CPU：
+程序、配置、游标和待发报告都保留在解压目录中，不需要创建专用用户或向 `/opt`、`/var/lib` 复制文件。使用哪个账号启动，就需要该账号对日志有读取权限、对本目录有写权限。
 
-```bash
-uname -m
-cat /etc/os-release
-```
+## 1. 解压
 
-`x86_64` 使用 amd64 包；`aarch64` 或 `arm64` 使用 arm64 包。其他架构先停止，不要试跑不匹配的二进制。
-
-## 1. 上传并解压
-
-开发机使用 `bash script/build-linux.sh` 生成两个安装包和 SHA-256 文件，位于 `dist/`。选中匹配的 `.tar.gz` 和 `.sha256`，用现有 SFTP 客户端上传到服务器的用户目录，无需公开发布。
-
-以下以 amd64 为例，ARM64 将文件名中的 `amd64` 改成 `arm64`：
+`uname -m` 输出 `x86_64` 使用 amd64 包，输出 `aarch64` 或 `arm64` 使用 arm64 包。以下以 amd64 为例：
 
 ```bash
 sha256sum -c logdog-feishu-linux-amd64.tar.gz.sha256
 tar -xzf logdog-feishu-linux-amd64.tar.gz
 cd logdog-feishu-linux-amd64
-file logdog-feishu
+./logdog-feishu -h
 ```
 
-校验必须显示 `OK`。可执行文件应为对应架构的 Linux ELF，并静态链接；服务器不需要 Go、Node 或额外 TUI 运行库。
+校验显示 `OK`、帮助正常输出后即可配置。服务器无需 Go 或额外 TUI 运行库，只需要可用的系统 CA 和 HTTPS 出站连接。
 
-## 2. 安装
+## 2. 配置
+
+在解压目录内执行：
 
 ```bash
-id logdog || sudo useradd --system --user-group --home-dir /var/lib/logdog --shell /usr/sbin/nologin logdog
-sudo install -d -m 0755 /opt/logdog
-sudo install -m 0755 logdog-feishu /opt/logdog/logdog-feishu
-sudo cp -R licenses /opt/logdog/
-sudo install -m 0644 README.md SOURCE.txt /opt/logdog/
-sudo install -d -o logdog -g logdog -m 0700 /var/lib/logdog
-sudo install -m 0644 logdog-feishu.service /etc/systemd/system/logdog-feishu.service
+./logdog-feishu configure
+```
+
+填写 Webhook、可选签名密钥、项目、服务、日志绝对路径和匹配词。移动到 `Save configuration` 回车，确认 saved 后选择 `Quit`。Webhook 与密钥只在本机 TUI 中填写，不提交到仓库。
+
+文件位置如下：
+
+```text
+解压目录/
+  logdog-feishu
+  config.yaml             TUI 生成，权限 0600
+  config.yaml.state       运行时生成，保存游标及待发报告
+  config.yaml.state.lock  防止本目录启动多个监听实例
+  licenses/
+```
+
+保持默认状态路径即可。启动前确认当前账号能读取配置里的日志文件，也能遍历其父目录。
+
+## 3. 前台验证
+
+```bash
+./logdog-feishu run
+```
+
+确认每个项目/服务显示 watching，files 数量符合预期。`files=0` 不表示真实日志已被监听。按 Ctrl+C 退出会保存状态；关掉 SSH 前应切换到后台运行方式。
+
+程序启动后会向配置的群发送实际命中的告警。需要验证发送链路时，选择独立测试日志并确认允许发送测试告警，再追加关键字和堆栈；不要向生产日志注入测试内容。
+
+## 4. 可选：systemd 常驻与开机自启
+
+应用文件仍在本目录，systemd 只注册指向此处的服务链接，并管理系统运行日志。此步骤需要 root 或 sudo 权限。先停止前台监听，再执行；注册后不要移动或重命名解压目录。
+
+在解压目录内生成本机服务文件：
+
+```bash
+logdog_dir="$(pwd -P)"
+logdog_user="$(id -un)"
+logdog_group="$(id -gn)"
+cat > logdog-feishu.service <<EOF
+[Unit]
+Description=Logdog Feishu log alerts
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=$logdog_user
+Group=$logdog_group
+WorkingDirectory=$logdog_dir
+ExecStart="$logdog_dir/logdog-feishu" run -c "$logdog_dir/config.yaml"
+Restart=on-failure
+RestartSec=15s
+TimeoutStopSec=45s
+UMask=0077
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
+EOF
+```
+
+目录路径须不包含 `%`、反斜线、双引号或换行，这些字符在 systemd 配置中需要额外转义。服务使用生成文件时的当前账号；如果用 root 生成，就以 root 运行。实际项目日志读取权限按这个账号检查。
+
+注册并启动（root 执行时可以省略 sudo）：
+
+```bash
+sudo systemctl link "$logdog_dir/logdog-feishu.service"
 sudo systemctl daemon-reload
-```
-
-`/opt/logdog` 存放程序，`/var/lib/logdog` 存放配置、游标和待发报告。不要删除状态文件，它负责续读和恢复发送。
-
-## 3. 确认日志读取权限
-
-用实际日志路径替换下面示例：
-
-```bash
-sudo -u logdog test -r /var/log/your-service/app.log && echo '日志可读'
-```
-
-目录需要遍历权限，文件需要读取权限。若不可读，先查看 `ls -ld` 和 `ls -l` 的属组，按服务原有权限方案给 logdog 添加必要的日志读取组，或者设置目录 ACL；不要把整个日志目录改成所有人可写。轮转新建的文件也必须继承读取权限。
-
-## 4. 用 TUI 配置
-
-```bash
-sudo -u logdog /opt/logdog/logdog-feishu configure -c /var/lib/logdog/config.yaml
-```
-
-填写一个飞书群自定义机器人 Webhook、可选签名密钥、项目、服务、绝对日志路径和匹配词。选择 `Save configuration` 回车，确认显示 saved 后再选择 `Quit`。所有项目与服务共用这一个 Webhook；TUI 退出时不会发送测试消息。
-
-无需设置状态路径，默认会保存到 `/var/lib/logdog/config.yaml.state`。Webhooks 和密钥只在服务器 TUI 中填写，不要贴到聊天或仓库。服务器需要能向飞书发出 HTTPS 请求，系统 CA 缺失时安装发行版的 `ca-certificates`。
-
-## 5. 启动并观察
-
-```bash
 sudo systemctl enable --now logdog-feishu
 sudo systemctl status logdog-feishu --no-pager
 sudo journalctl -u logdog-feishu -n 50 --no-pager
 ```
 
-确认 `active (running)`，并且每个配置的项目/服务都显示 watching，files 数量符合预期。`files=0` 可能是路径暂不存在或没有匹配文件，不代表真实日志已被监听。
+若提示同名服务已存在，先用 `systemctl cat logdog-feishu` 确认已有配置，勿覆盖正在使用的其他安装实例。
 
-启动成功不等于飞书链路已验收。下一步由用户选择一个独立测试日志并确认允许发测试告警，再追加匹配行，核对群里的来源、堆栈与分段；不要向生产日志注入测试内容。随后分别验证重启、轮转和网络恢复。
+若希望完全不向系统目录注册文件，可以先前台运行；systemd 自动重启和开机自启只在完成此步骤后提供。
 
-## 日常操作
+## 日常维护
 
-```bash
-sudo systemctl restart logdog-feishu
-sudo systemctl stop logdog-feishu
-sudo journalctl -u logdog-feishu -f
-```
+- 修改配置：在解压目录执行 `./logdog-feishu configure`，保存后 `systemctl restart logdog-feishu`。
+- 查看运行日志：`journalctl -u logdog-feishu -f`。
+- 停止服务：`systemctl stop logdog-feishu`。
+- 升级：停止进程，备份旧二进制，再替换本目录的 `logdog-feishu`，保留配置和状态后启动。不要把新的版本目录直接当作全新实例运行。
+- 移走或删除应用目录前：先停止并禁用已注册的服务，清理自己创建的服务链接；确认不再需要恢复状态后再处理目录。
 
-修改配置后重启生效。发送最终失败时进程退出，systemd 等待 15 秒后重启，优先重发已保存报告；错误持续时需要查看 journal，不要通过删除状态文件解决。配置格式或权限错误也会导致重启，需要修正原因后重新启动。
-
-升级前停止服务，备份旧二进制；安装新二进制后启动服务。保留配置和状态。真实 Linux 长期运行及内存基线仍需实测，不能用静态构建成功代替。
+发送最终失败时进程退出，systemd 等待 15 秒后重启并优先重发待发报告。不要删除状态文件来解决网络问题。静态构建成功不代表完成真实 Linux 长期运行和飞书链路验收。
 
 ## 许可证
 
-本安装包用于项目本地部署验收，没有为上游遗留代码补授许可证。整个项目对外分发前仍需确认上游授权；第三方组件的许可证随包保存在 `licenses/`。
+安装包没有为上游遗留代码补授许可证。对外分发前仍需确认上游授权；第三方组件的许可信息保留在 `licenses/`。

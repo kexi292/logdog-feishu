@@ -65,7 +65,7 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o logdog-feishu .
 
 ARM64 服务器把 `GOARCH` 改成 `arm64`。服务器只需上传对应 Linux 二进制，通过 `./logdog-feishu configure` 配置、`./logdog-feishu run` 监听，无需安装 Go。需要可用的系统 CA 信任库和 HTTPS 出站网络；精简发行版可安装 `ca-certificates`，不要关闭 TLS 校验。
 
-完整安装包使用 `bash script/build-linux.sh` 构建，包含二进制、systemd 服务文件和第三方许可证。安装步骤见 [Linux 部署说明](deploy/DEPLOY.md)。
+完整安装包使用 `bash script/build-linux.sh` 构建，包含二进制、部署说明和第三方许可证。解压后在目录内运行 `./logdog-feishu configure` 和 `./logdog-feishu run`，配置与状态默认保存在同一目录。可选的 systemd 服务也在本目录生成，只向系统注册链接。步骤见 [Linux 原地部署](deploy/DEPLOY.md)。
 
 自动测试只使用临时日志和本地 HTTPS 测试服务。实际 Linux 长期运行、RSS 实测、systemd 运行和真实飞书群验收尚未完成，后续事项见 [TODO.md](TODO.md)。
 

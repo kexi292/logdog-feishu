@@ -15,7 +15,7 @@ for arch in "${architectures[@]}"; do
   package_dir="dist/$package_name"
   mkdir -p "$package_dir/licenses"
   CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath -ldflags='-s -w' -o "$package_dir/logdog-feishu" .
-  cp deploy/logdog-feishu.service deploy/DEPLOY.md README.md "$package_dir/"
+  cp deploy/DEPLOY.md README.md "$package_dir/"
   go_root="$(go env GOROOT)"
   go_license="$go_root/LICENSE"
   if [ ! -f "$go_license" ]; then go_license="$go_root/../LICENSE"; fi
@@ -40,7 +40,9 @@ for arch in "${architectures[@]}"; do
         exit 1
       fi
     done
-  COPYFILE_DISABLE=1 tar --format=ustar "${tar_owner[@]}" -C dist -czf "dist/$package_name.tar.gz" "$package_name"
+  COPYFILE_DISABLE=1 tar --format=ustar "${tar_owner[@]}" -C dist -czf "dist/$package_name.tar.gz" \
+    "$package_name/logdog-feishu" "$package_name/DEPLOY.md" "$package_name/README.md" \
+    "$package_name/SOURCE.txt" "$package_name/licenses"
   (
     cd dist
     if command -v sha256sum >/dev/null 2>&1; then
