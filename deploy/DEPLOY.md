@@ -73,9 +73,9 @@ NoNewPrivileges=true
 WantedBy=multi-user.target
 EOF
 
-systemctl link "$logdog_dir/logdog-feishu.service" &&
+systemctl enable "$logdog_dir/logdog-feishu.service" &&
 systemctl daemon-reload &&
-systemctl enable --now logdog-feishu
+systemctl start logdog-feishu
 ```
 
 `run` 默认读取工作目录里的 `config.yaml`。失败后等待 15 秒重启；停止时最多等待 45 秒，留出保存状态和收尾发送的时间。`UMask` 与 `NoNewPrivileges` 保留文件权限和进程权限保护。开机时若网络还没就绪，失败重启机制会继续尝试。
