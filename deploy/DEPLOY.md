@@ -48,28 +48,21 @@ cd logdog-feishu-linux-amd64
 
 程序启动后会向配置的群发送实际命中的告警。需要验证发送链路时，选择独立测试日志并确认允许发送测试告警，再追加关键字和堆栈；不要向生产日志注入测试内容。
 
-## 4. 可选：systemd 常驻与开机自启
+## 4. systemd 常驻与开机自启
 
-应用文件仍在本目录，systemd 只注册指向此处的服务链接，并管理系统运行日志。此步骤需要 root 或 sudo 权限。先停止前台监听，再执行；注册后不要移动或重命名解压目录。
+应用文件仍在本目录，systemd 只注册指向此处的服务链接，并管理系统运行日志。以下命令以 root 执行，服务也以 root 运行。先停止已有的前台或 nohup 监听，再执行；注册后不要移动或重命名解压目录。
 
-在解压目录内生成本机服务文件：
+在解压目录内执行这一段，即可生成服务文件、注册并启动：
 
 ```bash
 logdog_dir="$(pwd -P)"
-logdog_user="$(id -un)"
-logdog_group="$(id -gn)"
 cat > logdog-feishu.service <<EOF
 [Unit]
 Description=Logdog Feishu log alerts
-Wants=network-online.target
-After=network-online.target
 
 [Service]
-Type=simple
-User=$logdog_user
-Group=$logdog_group
 WorkingDirectory=$logdog_dir
-ExecStart="$logdog_dir/logdog-feishu" run -c "$logdog_dir/config.yaml"
+ExecStart="$logdog_dir/logdog-feishu" run
 Restart=on-failure
 RestartSec=15s
 TimeoutStopSec=45s
@@ -79,21 +72,22 @@ NoNewPrivileges=true
 [Install]
 WantedBy=multi-user.target
 EOF
+
+systemctl link "$logdog_dir/logdog-feishu.service" &&
+systemctl daemon-reload &&
+systemctl enable --now logdog-feishu
 ```
 
-目录路径须不包含 `%`、反斜线、双引号或换行，这些字符在 systemd 配置中需要额外转义。服务使用生成文件时的当前账号；如果用 root 生成，就以 root 运行。实际项目日志读取权限按这个账号检查。
+`run` 默认读取工作目录里的 `config.yaml`。失败后等待 15 秒重启；停止时最多等待 45 秒，留出保存状态和收尾发送的时间。`UMask` 与 `NoNewPrivileges` 保留文件权限和进程权限保护。开机时若网络还没就绪，失败重启机制会继续尝试。
 
-注册并启动（root 执行时可以省略 sudo）：
+确认状态：
 
 ```bash
-sudo systemctl link "$logdog_dir/logdog-feishu.service"
-sudo systemctl daemon-reload
-sudo systemctl enable --now logdog-feishu
-sudo systemctl status logdog-feishu --no-pager
-sudo journalctl -u logdog-feishu -n 50 --no-pager
+systemctl status logdog-feishu --no-pager
+journalctl -u logdog-feishu -n 30 --no-pager
 ```
 
-若提示同名服务已存在，先用 `systemctl cat logdog-feishu` 确认已有配置，勿覆盖正在使用的其他安装实例。
+若提示同名服务已存在，先用 `systemctl cat logdog-feishu` 确认已有配置，勿覆盖正在使用的其他安装实例。目录路径须不包含 `%`、反斜线、双引号或换行，这些字符在 systemd 配置中需要额外转义。
 
 若希望完全不向系统目录注册文件，可以先前台运行；systemd 自动重启和开机自启只在完成此步骤后提供。
 
