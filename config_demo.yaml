@@ -1,6 +1,7 @@
 inputs:
   # 项目名称，没啥用
   - name: project-000
+    project: demo
     # paths扫描频率(秒)
     scan_frequency: 10
     # 监控的文件，支持glob
@@ -13,15 +14,15 @@ inputs:
     exclude_lines:
       - "success"
       - "warning"
-    # 另一个项目配置
+  # 另一个项目配置
   - name: project-001
+    project: demo
     paths:
       - /var/log/*.log
     include_lines: ['success']
 output.http:
-# 飞书(示例) — interactive 卡片，模板使用 ${...} 占位符
-# 若要优先使用飞书，请把 url 填上；若保留空字符串/省略，则不会使用飞书（会使用上面的 enterprise wechat）
-  url: https://open.feishu.cn/open-apis/bot/v2/hook/c7b43dce-45b2-4e07-aaf3-57c69d89fc3a
+# 飞书(示例) — 请替换为你自己的群机器人地址
+  url: https://open.feishu.cn/open-apis/bot/v2/hook/REPLACE_ME
   secret: ""              # 若开启签名则填写 secret，否则留空 
   headers:
     - Content-Type application/json;charset=UTF-8

@@ -10,13 +10,21 @@
 
 ## 运行
 
-```yaml
-go run main.go -c config_demo.yaml
+首次使用直接启动配置界面，不需要记忆 YAML 写法：
+
+```bash
+go run . configure -c config.yaml
 ```
 
-## 配置说明
+在界面中填写 Webhook、项目、服务、日志路径和关键字，按 `Ctrl+S` 保存。后台监听使用：
 
-使用yaml格式
+```bash
+go run . run -c config.yaml
+```
+
+## 配置文件
+
+配置文件由 TUI 生成，也可以由后台命令读取。Webhook 和签名密钥只保存在本地配置文件中。
 
 ```yaml
 inputs:
@@ -42,7 +50,7 @@ inputs:
 output.http:
   method: POST
   # 这里是企微机器人的地址
-  url: https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=*
+  url: https://open.feishu.cn/open-apis/bot/v2/hook/REPLACE_ME
   # Header头
   headers:
     - Content-Type application/json;charset=UTF-8

@@ -3,8 +3,6 @@ package app
 import (
 	"github.com/zhjx922/alert/input"
 	"github.com/zhjx922/alert/publisher"
-	"gopkg.in/yaml.v3"
-	"io/ioutil"
 )
 
 type Alert struct {
@@ -13,18 +11,7 @@ type Alert struct {
 }
 
 func InitConfig(filename string) (*input.Config, error) {
-	content, err := ioutil.ReadFile(filename)
-	if err != nil {
-		return nil, err
-	}
-
-	config := &input.Config{}
-	err = yaml.Unmarshal(content, config)
-	if err != nil {
-		return nil, err
-	}
-
-	return config, nil
+	return input.Load(filename)
 }
 
 func NewAlert(configFile string) *Alert {
