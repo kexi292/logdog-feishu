@@ -4,6 +4,10 @@ set -euo pipefail
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_dir"
 if [ "$#" -eq 0 ]; then architectures=(amd64 arm64); else architectures=("$@"); fi
+tar_owner=(--owner=0 --group=0)
+case "$(tar --version)" in
+  *bsdtar*) tar_owner=(--uid 0 --gid 0 --uname root --gname root) ;;
+esac
 
 for arch in "${architectures[@]}"; do
   case "$arch" in amd64|arm64) ;; *) echo 'Usage: bash script/build-linux.sh [amd64|arm64]' >&2; exit 1 ;; esac
@@ -36,7 +40,7 @@ for arch in "${architectures[@]}"; do
         exit 1
       fi
     done
-  COPYFILE_DISABLE=1 tar -C dist -czf "dist/$package_name.tar.gz" "$package_name"
+  COPYFILE_DISABLE=1 tar --format=ustar "${tar_owner[@]}" -C dist -czf "dist/$package_name.tar.gz" "$package_name"
   (
     cd dist
     if command -v sha256sum >/dev/null 2>&1; then
