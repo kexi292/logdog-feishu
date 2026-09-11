@@ -1,47 +1,15 @@
-inputs:
-  # 项目名称，没啥用
-  - name: project-000
-    project: demo
-    # paths扫描频率(秒)
-    scan_frequency: 10
-    # 监控的文件，支持glob
-    paths:
-      - /data/log/*.log
-      - /data/log1/log1.log
-    # 监控内容，包含内容即告警
-    include_lines: ['error', 'warning']
-    # 排除监控内容，包含不告警
-    exclude_lines:
-      - "success"
-      - "warning"
-  # 另一个项目配置
-  - name: project-001
-    project: demo
-    paths:
-      - /var/log/*.log
-    include_lines: ['success']
+# 优先使用 TUI 生成自己的配置；此文件只包含占位地址。
 output.http:
-# 飞书(示例) — 请替换为你自己的群机器人地址
   url: https://open.feishu.cn/open-apis/bot/v2/hook/REPLACE_ME
-  secret: ""              # 若开启签名则填写 secret，否则留空 
-  headers:
-    - Content-Type application/json;charset=UTF-8
-  body: >
-    {
-      "msg_type": "interactive",
-      "card": {
-        "header": {
-          "title": {
-            "content": "🛑 **DIY 报警内容**",
-            "tag": "lark_md"
-          }
-        },
-        "elements": [
-          {"tag":"div","text":{"content":"**告警时间:** ${format_time}","tag":"lark_md"}},
-          {"tag":"div","text":{"content":"**告警统计:**\n<font color=\"green\">${alert_results}</font>","tag":"lark_md"}},
-          {"tag":"div","text":{"content":"**触发的关键字:**\n<font color=\"red\">${triggered_keywords_results}</font>","tag":"lark_md"}},
-          {"tag":"div","text":{"content":"----","tag":"lark_md"}},
-          {"tag":"div","text":{"content":"⚠️ **注意事项:**\\n- 请尽快处理\\n- 如有疑问请联系管理员","tag":"lark_md"}}
-        ]
-      }
-    }
+  secret: ""
+# 可选。默认使用配置文件路径加 .state；相对路径相对配置文件目录。
+# state_file: ./logdog.state
+inputs:
+  - project: demo
+    name: api
+    scan_frequency: 10
+    paths:
+      - /var/log/example-api
+      - /var/log/example-worker/*.log
+    include_lines: ['ERROR', 'FATAL', 'panic:', 'Exception', 'Traceback']
+    exclude_lines: ['KnownHealthCheckError']

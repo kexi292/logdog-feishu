@@ -9,8 +9,9 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/zhjx922/alert/input"
-	"github.com/zhjx922/alert/output"
+	"github.com/kexi292/logdog-feishu/input"
+	"github.com/kexi292/logdog-feishu/output"
+	"golang.org/x/term"
 )
 
 var (
@@ -30,17 +31,25 @@ type model struct {
 var actionLabels = []string{"Save configuration", "Add service", "Previous service", "Next service", "Quit"}
 
 func Run(filename string) error {
+	if !term.IsTerminal(int(os.Stdin.Fd())) || !term.IsTerminal(int(os.Stdout.Fd())) {
+		return fmt.Errorf("configure requires an interactive terminal; use run for background monitoring")
+	}
 	c, err := input.Load(filename)
 	if os.IsNotExist(err) {
-		c = &input.Config{OutputHttp: &output.Http{Method: "POST", Format: "json"}}
+		c = &input.Config{OutputHttp: &output.Http{}}
 	} else if err != nil {
 		return err
 	}
 	if c.OutputHttp == nil {
-		c.OutputHttp = &output.Http{Method: "POST", Format: "json"}
+		c.OutputHttp = &output.Http{}
 	}
 	if len(c.Inputs) == 0 {
 		c.Inputs = []*input.Inputs{{ScanFrequency: 10}}
+	}
+	for _, in := range c.Inputs {
+		if in == nil {
+			return fmt.Errorf("configuration contains an empty service; remove the empty entry before editing")
+		}
 	}
 	_, err = tea.NewProgram(newModel(c, filename)).Run()
 	return err
@@ -62,7 +71,7 @@ func (m *model) loadService(index int) {
 		m.fields[i].Placeholder = labels[i]
 		m.fields[i].SetValue(values[i])
 		m.fields[i].Width = 70
-		if i == 1 {
+		if i <= 1 {
 			m.fields[i].EchoMode = textinput.EchoPassword
 		}
 	}
@@ -81,7 +90,9 @@ func (m *model) moveFocus(next int) {
 }
 
 func (m *model) saveConfig() {
-	m.saveFields()
+	if !m.saveFields() {
+		return
+	}
 	if err := input.Save(m.filename, m.config); err != nil {
 		m.err, m.status = err.Error(), ""
 	} else {
@@ -94,18 +105,24 @@ func (m *model) chooseAction() tea.Cmd {
 	case 0:
 		m.saveConfig()
 	case 1:
-		m.saveFields()
+		if !m.saveFields() {
+			return nil
+		}
 		m.config.Inputs = append(m.config.Inputs, &input.Inputs{ScanFrequency: 10})
 		m.loadService(len(m.config.Inputs) - 1)
 		m.status, m.err = "new service", ""
 	case 2:
 		if m.service > 0 {
-			m.saveFields()
+			if !m.saveFields() {
+				return nil
+			}
 			m.loadService(m.service - 1)
 		}
 	case 3:
 		if m.service+1 < len(m.config.Inputs) {
-			m.saveFields()
+			if !m.saveFields() {
+				return nil
+			}
 			m.loadService(m.service + 1)
 		}
 	case 4:
@@ -114,16 +131,20 @@ func (m *model) chooseAction() tea.Cmd {
 	return nil
 }
 
-func (m *model) saveFields() {
+func (m *model) saveFields() bool {
+	n, err := strconv.ParseInt(strings.TrimSpace(m.fields[7].Value()), 10, 64)
+	if err != nil || n < 0 || n > 3600 {
+		m.err, m.status = "Scan seconds must be 0 (default) or 1..3600", ""
+		return false
+	}
 	c := m.config
 	h := c.OutputHttp
 	h.Url, h.Secret = strings.TrimSpace(m.fields[0].Value()), m.fields[1].Value()
 	in := c.Inputs[m.service]
 	in.Project, in.Name = strings.TrimSpace(m.fields[2].Value()), strings.TrimSpace(m.fields[3].Value())
 	in.Paths, in.IncludeLines, in.ExcludeLines = split(m.fields[4].Value()), split(m.fields[5].Value()), split(m.fields[6].Value())
-	if n, err := strconv.ParseInt(strings.TrimSpace(m.fields[7].Value()), 10, 64); err == nil {
-		in.ScanFrequency = n
-	}
+	in.ScanFrequency = n
+	return true
 }
 func split(s string) []string {
 	var out []string
@@ -147,7 +168,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.moveFocus(m.focus - 1)
 		case "enter":
 			if m.focus >= len(m.fields) {
-				return m, m.chooseAction()
+				cmd := m.chooseAction()
+				return m, cmd
 			}
 		}
 	}
