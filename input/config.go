@@ -23,9 +23,10 @@ type Inputs struct {
 }
 
 type Config struct {
-	StateFile  string       `yaml:"state_file,omitempty"`
-	Inputs     []*Inputs    `yaml:"inputs"`
-	OutputHttp *output.Http `yaml:"output.http"`
+	ServerMonitor *ServerConfig `yaml:"server_monitor,omitempty"`
+	StateFile     string        `yaml:"state_file,omitempty"`
+	Inputs        []*Inputs     `yaml:"inputs"`
+	OutputHttp    *output.Http  `yaml:"output.http"`
 }
 
 func (c *Config) Validate() error {
@@ -38,6 +39,11 @@ func (c *Config) Validate() error {
 	}
 	if len(c.OutputHttp.Url) > 2048 || len(c.OutputHttp.Secret) > 1024 {
 		return fmt.Errorf("webhook credentials exceed size limit")
+	}
+	if c.ServerMonitor != nil {
+		if err := c.ServerMonitor.Validate(); err != nil {
+			return err
+		}
 	}
 	if len(c.Inputs) == 0 {
 		return fmt.Errorf("at least one input is required")

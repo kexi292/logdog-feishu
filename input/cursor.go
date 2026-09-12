@@ -15,6 +15,8 @@ import (
 )
 
 type cursor struct {
+	// The reserved server-monitor entry shares the atomic state and delivery path.
+	Server   *serverState      `json:"server,omitempty"`
 	Identity string            `json:"identity"`
 	Offset   int64             `json:"offset"`
 	Seen     time.Time         `json:"seen"`
@@ -86,9 +88,25 @@ func (s *cursorStore) deliver(ctx context.Context, key string, send func(context
 	if err := send(ctx, *c.Pending); err != nil {
 		return err
 	}
+	acknowledged := time.Now()
+	if c.Pending.Kind == "server" && c.Server != nil {
+		// A delayed replay starts a fresh cooldown after successful delivery.
+		for _, kind := range c.Pending.Keywords {
+			switch kind {
+			case "server_load":
+				if acknowledged.After(c.Server.Load.LastSent) {
+					c.Server.Load.LastSent = acknowledged
+				}
+			case "server_memory":
+				if acknowledged.After(c.Server.Memory.LastSent) {
+					c.Server.Memory.LastSent = acknowledged
+				}
+			}
+		}
+	}
 	c.Offset = c.Pending.End
 	c.Pending = nil
-	c.Seen = time.Now()
+	c.Seen = acknowledged
 	s.data[key] = c
 	if err := s.save(); err != nil {
 		return fmt.Errorf("persist delivered report: %w", err)

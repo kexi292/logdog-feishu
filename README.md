@@ -21,6 +21,30 @@ go run . run -c config.yaml
 
 TUI 是按需运行的配置工具，后台监听不需要终端。当前 TUI 的路径和关键字用英文逗号分隔；路径本身含逗号时需要编辑配置文件。退出未保存确认、删除服务和报告预览仍待完善。
 
+## 发送记录
+
+通过 systemd 启动时查看运行日志：
+
+```bash
+journalctl -u logdog-feishu -f -o cat
+```
+
+`event=send_started` 表示报告准备发送，`send_attempt` 表示开始一次 HTTP 尝试，`send_retry` 表示失败后准备重试，`send_succeeded` 表示整份报告所有分段均收到飞书成功响应；最终失败为 `send_failed`。长报告还会打印 `part_sent`。
+
+日志包含报告编号、类型、项目/服务、主机、文件位置、分段数量和耗时，不记录 Webhook、签名密钥或报告原文。`send_succeeded` 表示飞书接口接受，不表示群成员已阅读。重启后重发的报告也经过同一条记录链路。
+
+## 服务器负载告警
+
+在 TUI 选择 `Enable server monitoring`，按需填写 `Server load/core threshold` 与 `Server memory threshold (%)`，再选择保存并重启服务。默认关闭；默认阈值分别为 1.0 和 90%。这些设置全实例共用，切换日志服务不会创建第二套服务器监控。若 TUI 中没有该动作，使用最新安装包重新部署。
+
+- 每 30 秒读取 Linux `/proc/loadavg`、`/proc/stat` 和 `/proc/meminfo`。
+- 1 分钟平均负载除以 CPU 核数达到阈值，或内存使用率达到阈值，连续采样至少 3 分钟才告警。两项分别计时，同次满足时合成一条报告。
+- 内存使用率为 `(MemTotal - MemAvailable) / MemTotal`，不会把可回收缓存全部当成已占用；平均负载包括运行队列和不可中断等待，并非 CPU 使用百分比。
+- 同一指标至少间隔 15 分钟再次告警，状态与待发报告共用本地状态文件，重启不会清除冷却时间。恢复正常会清除持续计时，不额外发送恢复通知。
+- 报告包含主机、1/5/15 分钟负载、CPU 核数、内存总量/可用量、实际值和阈值，发送到同一个群。
+
+此功能面向原生 Linux 主机，不解析容器配额。缺少有效 `MemAvailable` 或其他采集数据时记录 `server_sample_failed`、重置持续计时并继续监听日志；恢复采样记录 `server_sample_recovered`。同步发送可能延后采样，间隔超过 60 秒后重新计算持续时间。无需引入系统监控 SDK 或后台服务。
+
 ## 路径与匹配
 
 - 目录：监听当前目录中的 `*.log`，不递归。

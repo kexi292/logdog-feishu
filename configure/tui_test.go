@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/kexi292/logdog-feishu/input"
 	"github.com/kexi292/logdog-feishu/output"
 )
@@ -50,5 +51,40 @@ func TestMenuPreservesServiceAndRejectsInvalidScan(t *testing.T) {
 	}
 	if saved.Inputs[0].Name != "first" || saved.Inputs[1].Name != "second" || saved.Inputs[1].ScanFrequency != 5 {
 		t.Fatal("service data crossed during editing")
+	}
+	m.moveFocus(len(m.fields) + 5)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+	if !m.config.ServerMonitor.Enabled || !strings.Contains(m.View(), "Disable server monitoring") {
+		t.Fatal("server monitoring toggle lost")
+	}
+	m.fields[8].SetValue("1.5")
+	m.fields[9].SetValue("92")
+	m.moveFocus(len(m.fields))
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+	saved, err = input.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.ServerMonitor == nil || !saved.ServerMonitor.Enabled || saved.ServerMonitor.LoadPerCPU != 1.5 || saved.ServerMonitor.MemoryPercent != 92 {
+		t.Fatal("server settings did not survive saving")
+	}
+	m.fields[9].SetValue("NaN")
+	m.saveConfig()
+	if m.err == "" {
+		t.Fatal("invalid server threshold accepted by TUI")
+	}
+	m.err, m.status = "", ""
+	updated, _ = m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = updated.(model)
+	view := m.View()
+	if len(strings.Split(view, "\n")) > 24 {
+		t.Fatal("menu does not fit a standard terminal")
+	}
+	for _, line := range strings.Split(view, "\n") {
+		if lipgloss.Width(line) > 80 {
+			t.Fatal("TUI wraps beyond the terminal width")
+		}
 	}
 }

@@ -3,6 +3,7 @@ package input
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"syscall"
 	"time"
@@ -58,11 +59,24 @@ func Run(ctx context.Context, config *Config, statePath string, send func(contex
 	if err := store.save(); err != nil {
 		return err
 	}
+	var server *serverMonitor
+	if config.ServerMonitor != nil && config.ServerMonitor.Enabled {
+		server = &serverMonitor{config: *config.ServerMonitor, store: store, host: host, send: send, read: func() (serverSample, error) { return readServerSample("/proc") }}
+		log.Printf("event=server_monitor_started interval_seconds=30 hold_seconds=180 cooldown_seconds=900 load_per_cpu=%.2f memory_percent=%.1f", server.config.LoadPerCPU, server.config.MemoryPercent)
+	}
 	nextSave := time.Now().Add(10 * time.Second)
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
 	// ponytail: synchronous delivery pauses scanning; decouple only if measured throughput needs it.
 	for {
+		if server != nil {
+			if err := server.poll(ctx, time.Now()); err != nil {
+				if ctx.Err() != nil {
+					return nil
+				}
+				return err
+			}
+		}
 		for _, in := range inputs {
 			if err := in.poll(ctx, time.Now()); err != nil {
 				if ctx.Err() != nil {
