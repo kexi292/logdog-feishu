@@ -2,6 +2,11 @@
 output.http:
   url: https://open.feishu.cn/open-apis/bot/v2/hook/REPLACE_ME
   secret: ""
+# 也可通过 TUI 的 Enable server monitoring 打开；阈值适用于整台服务器。
+server_monitor:
+  enabled: false
+  load_per_cpu: 1.0
+  memory_percent: 90
 # 可选。默认使用配置文件路径加 .state；相对路径相对配置文件目录。
 # state_file: ./logdog.state
 inputs:

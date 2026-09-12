@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -96,29 +97,43 @@ func wait(ctx context.Context, delay time.Duration) error {
 	}
 }
 
-func (p *Publisher) Send(ctx context.Context, report Report) error {
+func (p *Publisher) Send(ctx context.Context, report Report) (sendErr error) {
+	started := time.Now()
+	id := report.ID()
+	defer func() {
+		if sendErr != nil {
+			log.Printf("event=send_failed report_id=%s error=%q", id, sendErr.Error())
+		}
+	}()
 	parts, err := p.parts(report)
 	if err != nil {
 		return err
 	}
+	log.Printf("event=send_started report_id=%s kind=%q project=%q service=%q host=%q file=%q parts=%d", id, report.Type(), report.Project, report.Service, report.Host, report.File, len(parts))
 	for n, text := range parts {
 		for attempt := 0; attempt < 3; attempt++ {
 			if err := wait(ctx, time.Until(p.next)); err != nil {
 				return err
 			}
 			p.next = time.Now().Add(p.interval)
+			log.Printf("event=send_attempt report_id=%s part=%d/%d attempt=%d/3", id, n+1, len(parts), attempt+1)
 			retry, err := p.sendPart(ctx, text)
 			if err == nil {
+				if len(parts) > 1 {
+					log.Printf("event=part_sent report_id=%s part=%d/%d", id, n+1, len(parts))
+				}
 				break
 			}
 			if !retry || attempt == 2 {
 				return fmt.Errorf("report %s part %d/%d: %w", report.ID(), n+1, len(parts), err)
 			}
+			log.Printf("event=send_retry report_id=%s part=%d/%d error=%q", id, n+1, len(parts), err.Error())
 			if err := wait(ctx, time.Second<<attempt); err != nil {
 				return err
 			}
 		}
 	}
+	log.Printf("event=send_succeeded report_id=%s kind=%q project=%q service=%q host=%q file=%q parts=%d duration_ms=%d", id, report.Type(), report.Project, report.Service, report.Host, report.File, len(parts), time.Since(started).Milliseconds())
 	return nil
 }
 

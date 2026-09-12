@@ -1,6 +1,7 @@
 package publisher
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -93,6 +94,10 @@ func TestHTTPResponsesAndRetry(t *testing.T) {
 		{"business_rate_limit", 200, `{"code":9499}`, true, 2, ""},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			var logs bytes.Buffer
+			previous := log.Writer()
+			log.SetOutput(&logs)
+			defer log.SetOutput(previous)
 			calls := 0
 			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				calls++
@@ -107,10 +112,10 @@ func TestHTTPResponsesAndRetry(t *testing.T) {
 				fmt.Fprint(w, test.body)
 			}))
 			defer server.Close()
-			p := NewPublisher(&output.Http{Url: server.URL})
+			p := NewPublisher(&output.Http{Url: server.URL + "/private-placeholder", Secret: "test-signing-secret"})
 			p.client.Transport = server.Client().Transport
 			p.interval = 0
-			err := p.Send(context.Background(), Report{Lines: []string{"ERROR test\n"}})
+			err := p.Send(context.Background(), Report{Project: "demo", Service: "api", File: "/var/log/example.log", Lines: []string{"DO-NOT-LOG-THIS-BODY\n"}})
 			if test.wantError == "" && err != nil {
 				t.Fatal(err)
 			}
@@ -119,6 +124,25 @@ func TestHTTPResponsesAndRetry(t *testing.T) {
 			}
 			if calls != test.wantCalls {
 				t.Fatalf("requests=%d, want %d", calls, test.wantCalls)
+			}
+			output := logs.String()
+			for _, forbidden := range []string{server.URL, "private-placeholder", "test-signing-secret", "DO-NOT-LOG-THIS-BODY"} {
+				if strings.Contains(output, forbidden) {
+					t.Fatal("sensitive data leaked in delivery logs")
+				}
+			}
+			if strings.Count(output, "event=send_attempt") != calls || !strings.Contains(output, "event=send_started") {
+				t.Fatal("delivery attempt logs missing")
+			}
+			if test.wantError == "" {
+				if strings.Count(output, "event=send_succeeded") != 1 || strings.Contains(output, "event=send_failed") {
+					t.Fatal("successful delivery not logged accurately")
+				}
+			} else if !strings.Contains(output, "event=send_failed") || strings.Contains(output, "event=send_succeeded") {
+				t.Fatal("failed delivery logged as success")
+			}
+			if calls > 1 && !strings.Contains(output, "event=send_retry") {
+				t.Fatal("retry log missing")
 			}
 		})
 	}
